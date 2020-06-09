@@ -4,12 +4,17 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"path"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/BurntSushi/xgb"
 	"github.com/BurntSushi/xgb/xproto"
+)
+
+const (
+	batteryPath = "/sys/class/power_supply"
 )
 
 type block func() <-chan string
@@ -44,37 +49,54 @@ func formatDuration(d time.Duration) string {
 	return fmt.Sprintf("%02d:%02d", hrs, d/time.Minute)
 }
 
+func sysfsInt(path string) (int, error) {
+	b, err := ioutil.ReadFile(path)
+	if err != nil {
+		return 0, err
+	}
+
+	return strconv.Atoi(strings.TrimSpace(string(b)))
+}
+
+func sysfsStr(path string) (string, error) {
+	b, err := ioutil.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+
+	return strings.TrimSpace(string(b)), nil
+}
+
 func batteryStr() string {
-	capacityBytes, err := ioutil.ReadFile("/sys/class/power_supply/BAT0/capacity")
+	capacity, err := sysfsInt(path.Join(batteryPath, "BAT0", "capacity"))
 	if err != nil {
-		return err.Error()
+		log.Println(err)
+		return ""
 	}
 
-	chargeBytes, err := ioutil.ReadFile("/sys/class/power_supply/BAT0/charge_now")
+	chargeFull, err := sysfsInt(path.Join(batteryPath, "BAT0", "charge_full"))
 	if err != nil {
-		return err.Error()
+		log.Println(err)
+		return ""
 	}
 
-	chargeFullBytes, err := ioutil.ReadFile("/sys/class/power_supply/BAT0/charge_full")
+	charge, err := sysfsInt(path.Join(batteryPath, "BAT0", "charge_now"))
 	if err != nil {
-		return err.Error()
+		log.Println(err)
+		return ""
 	}
 
-	currentBytes, err := ioutil.ReadFile("/sys/class/power_supply/BAT0/current_now")
+	current, err := sysfsInt(path.Join(batteryPath, "BAT0", "current_now"))
 	if err != nil {
-		return err.Error()
+		log.Println(err)
+		return ""
 	}
 
-	statusBytes, err := ioutil.ReadFile("/sys/class/power_supply/BAT0/status")
+	status, err := sysfsStr(path.Join(batteryPath, "BAT0", "status"))
 	if err != nil {
-		return err.Error()
+		log.Println(err)
+		return ""
 	}
-
-	capacity, _ := strconv.Atoi(strings.TrimSpace(string(capacityBytes)))
-	charge, _ := strconv.Atoi(strings.TrimSpace(string(chargeBytes)))
-	chargeFull, _ := strconv.Atoi(strings.TrimSpace(string(chargeFullBytes)))
-	current, _ := strconv.Atoi(strings.TrimSpace(string(currentBytes)))
-	status := strings.TrimSpace(string(statusBytes))
 
 	switch status {
 	case "Discharging":

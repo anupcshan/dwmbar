@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"io/ioutil"
 	"log"
+	"os"
 	"path"
 	"strconv"
 	"strings"
@@ -15,6 +17,7 @@ import (
 
 const (
 	batteryPath = "/sys/class/power_supply"
+	netDevPath  = "/proc/net/dev"
 )
 
 type block func() <-chan string
@@ -41,6 +44,111 @@ func getBatteryStr() <-chan string {
 	}()
 
 	return ch
+}
+
+type ifaceState struct {
+	rxBytes int
+	txBytes int
+}
+
+func (i ifaceState) Sub(j ifaceState, dur time.Duration) ifaceState {
+	return ifaceState{
+		rxBytes: int(float64(i.rxBytes-j.rxBytes) / dur.Seconds()),
+		txBytes: int(float64(i.txBytes-j.txBytes) / dur.Seconds()),
+	}
+}
+
+func humanize(bps int) string {
+	suffix := ""
+
+	fbps := float64(8 * bps)
+
+	for fbps > 1000 {
+		switch suffix {
+		case "":
+			suffix = "k"
+		case "k":
+			suffix = "m"
+		case "m":
+			suffix = "g"
+		case "g":
+			suffix = "t"
+		default:
+			suffix = "WTF"
+		}
+
+		fbps /= 1000.0
+	}
+	return fmt.Sprintf("%.1f%s", fbps, suffix)
+}
+
+func (i ifaceState) String() string {
+	return fmt.Sprintf("RX: %s TX: %s", humanize(i.rxBytes), humanize(i.txBytes))
+}
+
+func getNetStr() <-chan string {
+	ch := make(chan string)
+	var prevState *ifaceState
+	var prevTs time.Time
+
+	go func() {
+		for {
+			nextState, err := netStr()
+			if err != nil {
+				log.Println(err)
+				continue
+			}
+			if prevState != nil {
+				ch <- nextState.Sub(*prevState, time.Now().Sub(prevTs)).String()
+			}
+			prevState = nextState
+			prevTs = time.Now()
+			time.Sleep(1 * time.Second)
+		}
+	}()
+
+	return ch
+}
+
+func netStr() (*ifaceState, error) {
+	f, err := os.Open(netDevPath)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	// Skip headers - first 2 lines
+	scanner.Scan()
+	scanner.Scan()
+
+	var ifStates ifaceState
+
+	for scanner.Scan() {
+		var iface string
+		var rxBytes, txBytes int
+		var unused int
+		// Inter-|   Receive                                                |  Transmit
+		//  face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed
+		//     lo: 1143585   14403    0    0    0     0          0         0  1143585   14403    0    0    0     0       0          0
+		if _, err := fmt.Sscanf(
+			scanner.Text(),
+			"%s %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d",
+			&iface, &rxBytes, &unused, &unused, &unused, &unused, &unused, &unused, &unused,
+			&txBytes, &unused, &unused, &unused, &unused, &unused, &unused, &unused,
+		); err != nil {
+			return nil, err
+		}
+
+		// Filter out lo and other not relevant interfaces
+		if strings.HasPrefix(iface, "wlp") ||
+			strings.HasPrefix(iface, "enx") || strings.HasPrefix(iface, "eth") {
+			ifStates.rxBytes += rxBytes
+			ifStates.txBytes += txBytes
+		}
+	}
+
+	return &ifStates, nil
 }
 
 func formatDuration(d time.Duration) string {
@@ -150,6 +258,7 @@ func genStr(blocks []block) <-chan string {
 
 func main() {
 	blocks := []block{
+		getNetStr,
 		getBatteryStr,
 		getTimeStr,
 	}

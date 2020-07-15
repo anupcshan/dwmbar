@@ -83,7 +83,7 @@ func humanize(bps int) string {
 }
 
 func (i ifaceState) String() string {
-	return fmt.Sprintf("RX: %s TX: %s", humanize(i.rxBytes), humanize(i.txBytes))
+	return fmt.Sprintf("NET: %s↓ %s↑", humanize(i.rxBytes), humanize(i.txBytes))
 }
 
 func getNetStr() <-chan string {
@@ -103,7 +103,7 @@ func getNetStr() <-chan string {
 			}
 			prevState = nextState
 			prevTs = time.Now()
-			time.Sleep(1 * time.Second)
+			time.Sleep(2 * time.Second)
 		}
 	}()
 

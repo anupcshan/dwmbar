@@ -3,9 +3,11 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"os"
+	"os/exec"
 	"path"
 	"strconv"
 	"strings"
@@ -222,6 +224,27 @@ func batteryStr() string {
 	return "BAT: Unknown"
 }
 
+func getPlayerStr() <-chan string {
+	pr, pw := io.Pipe()
+	cmd := exec.Command("playerctl", "metadata", "--format", "{{emoji(status)}} {{ artist }} - {{ title }}", "--follow")
+	cmd.Stdout = pw
+
+	if err := cmd.Start(); err != nil {
+		return nil
+	}
+
+	ch := make(chan string)
+
+	go func() {
+		scanner := bufio.NewScanner(pr)
+		for scanner.Scan() {
+			ch <- scanner.Text()
+		}
+	}()
+
+	return ch
+}
+
 type posStr struct {
 	str string
 	pos int
@@ -259,6 +282,7 @@ func genStr(blocks []block) <-chan string {
 func main() {
 	blocks := []block{
 		getNetStr,
+		getPlayerStr,
 		getBatteryStr,
 		getTimeStr,
 	}

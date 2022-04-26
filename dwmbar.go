@@ -250,6 +250,17 @@ type posStr struct {
 	pos int
 }
 
+func joinNonEmpty(strs []string, sep string) string {
+	nonEmpty := []string{}
+	for _, str := range strs {
+		if str != "" {
+			nonEmpty = append(nonEmpty, str)
+		}
+	}
+
+	return strings.Join(nonEmpty, sep)
+}
+
 func genStr(blocks []block) <-chan string {
 	subStrs := make([]string, len(blocks))
 	outCh := make(chan string)
@@ -272,7 +283,7 @@ func genStr(blocks []block) <-chan string {
 	go func() {
 		for update := range inCh {
 			subStrs[update.pos] = update.str
-			outCh <- strings.Join(subStrs, " | ")
+			outCh <- joinNonEmpty(subStrs, " | ")
 		}
 	}()
 
